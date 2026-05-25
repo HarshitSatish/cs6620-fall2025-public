@@ -1,0 +1,47 @@
+name: Docker Build and Push
+
+# Trigger: this workflow runs only when code is pushed to the week02 branch
+on:
+  push:
+    branches: 
+    - week02
+
+jobs:
+  build-and-push:
+    # Use the latest Ubuntu runner provided by GitHub Actions
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Pull the repo code into the GitHub Actions runner environment
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Docker Buildx — an extended Docker build engine
+      # that supports multi-platform builds and advanced caching
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Step 3: Authenticate with Docker Hub using the secrets we added
+      # in Settings → Secrets and variables → Actions
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 4: Build the Docker image from our Dockerfile and push it to Docker Hub
+      # - tags: names the image on Docker Hub as username/cs6620-app:latest
+      # - labels: embeds metadata into the image so we can verify it was
+      #   built by GitHub Actions (checked later via docker image inspect on EC2)
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/cs6620-app:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.event.repository.html_url }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            build.source=github-actions
+            build.workflow=${{ github.workflow }}
+            build.run_id=${{ github.run_id }}
+            build.run_number=${{ github.run_number }}
