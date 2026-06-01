@@ -1,26 +1,21 @@
 name: Docker Build and Push
-
 # Trigger: this workflow runs only when code is pushed to the week02 branch
 on:
   push:
     branches: 
     - week02
-
 jobs:
   build-and-push:
     # Use the latest Ubuntu runner provided by GitHub Actions
     runs-on: ubuntu-latest
-
     steps:
       # Step 1: Pull the repo code into the GitHub Actions runner environment
       - name: Checkout code
         uses: actions/checkout@v4
-
       # Step 2: Set up Docker Buildx — an extended Docker build engine
       # that supports multi-platform builds and advanced caching
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       # Step 3: Authenticate with Docker Hub using the secrets we added
       # in Settings → Secrets and variables → Actions
       - name: Log in to Docker Hub
@@ -28,7 +23,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       # Step 4: Build the Docker image from our Dockerfile and push it to Docker Hub
       # - tags: names the image on Docker Hub as username/cs6620-app:latest
       # - labels: embeds metadata into the image so we can verify it was
@@ -45,3 +39,34 @@ jobs:
             build.workflow=${{ github.workflow }}
             build.run_id=${{ github.run_id }}
             build.run_number=${{ github.run_number }}
+
+  deploy:
+    # This job runs only after build-and-push completes successfully
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Configure AWS credentials using GitHub secrets
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      # Step 2: Use SSM to remotely run Docker commands on EC2
+      # This eliminates the need for SSH access entirely
+      - name: Deploy to EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.EC2_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --comment "Automated deployment from GitHub Actions" \
+            --parameters commands='[
+              "docker pull ${{ secrets.DOCKERHUB_USERNAME }}/cs6620-app:latest",
+              "docker stop cs6620-app || true",
+              "docker rm cs6620-app || true",
+              "docker run -d --name cs6620-app --restart unless-stopped -p 80:5000 ${{ secrets.DOCKERHUB_USERNAME }}/cs6620-app:latest"
+            ]'
+      # Step 3: Confirm the deployment command was dispatched successfully
+      - name: Verify deployment command was sent
+        run: echo "Deployment command sent successfully to EC2 instance ${{ secrets.EC2_INSTANCE_ID }} via SSM"
